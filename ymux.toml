@@ -1,0 +1,12 @@
+debug = false
+listen = "127.0.0.1:32217"
+
+[[servers]]
+name = "official"
+prefix = "https://sessionserver.mojang.com"
+proxy = ""
+
+[[servers]]
+name = "littleskin"
+prefix = "https://littleskin.cn/api/yggdrasil/sessionserver"
+proxy = ""
