@@ -5,12 +5,20 @@ import (
 	"github.com/akamensky/argparse"
 	"github.com/gin-gonic/gin"
 	"github.com/keuin/ymux-go/config"
+	"github.com/keuin/ymux-go/instrument"
 	"github.com/keuin/ymux-go/yggdrasil"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"os"
+	"regexp"
 	"strings"
+	"time"
 )
+
+var processStartTime = time.Now()
 
 const applicationJson = "application/json"
 
@@ -53,7 +61,7 @@ func main() {
 		// we need this to make them happy
 		c.Data(200, applicationJson, []byte(`{}`))
 	})
-	r.GET("/sessionserver/session/minecraft/hasJoined", func(c *gin.Context) {
+	handlers := []gin.HandlerFunc{func(c *gin.Context) {
 		var args struct {
 			Username string `form:"username"`
 			ServerID string `form:"serverId"`
@@ -61,12 +69,22 @@ func main() {
 		err := c.ShouldBindQuery(&args)
 		if err != nil {
 			_ = c.AbortWithError(400, err)
+			instrument.SetInstrument(c, instrument.RequestInfo{
+				Success:  false,
+				Username: args.Username,
+				ServerID: args.ServerID,
+			})
 			return
 		}
 		r, err := s.HasJoined(args.Username, args.ServerID)
 		if err != nil {
 			log.Error().Err(err).Msg("ymux hasJoined API failed")
 			_ = c.AbortWithError(500, err)
+			instrument.SetInstrument(c, instrument.RequestInfo{
+				Success:  false,
+				Username: args.Username,
+				ServerID: args.ServerID,
+			})
 			return
 		}
 		log.Info().
@@ -75,16 +93,58 @@ func main() {
 			Str("yggdrasilServer", r.ServerName).
 			Bool("hasJoined", r.HasJoined()).
 			Msg("ymux hasJoined API OK")
+		instrument.SetInstrument(c, instrument.RequestInfo{
+			Success:  true,
+			Username: args.Username,
+			ServerID: args.ServerID,
+			LoggedIn: r.HasJoined(),
+		})
 		if r.HasJoined() {
 			c.Data(200, applicationJson, r.RawBody)
 			return
 		}
 		c.Status(204)
-	})
+	}}
+
+	// setup prometheus metrics exporter
+	if cfg.Metrics.Enabled {
+		reg := prometheus.NewRegistry()
+		reg.MustRegister(
+			collectors.NewBuildInfoCollector(),
+			collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+			collectors.NewGoCollector(
+				collectors.WithGoCollectorRuntimeMetrics(
+					collectors.GoRuntimeMetricsRule{Matcher: regexp.MustCompile("/.*")},
+				),
+			),
+		)
+		r.GET("/metrics", gin.WrapH(promhttp.HandlerFor(reg, promhttp.HandlerOpts{
+			ErrorLog:            promZeroLogger{},
+			ErrorHandling:       promhttp.HTTPErrorOnError,
+			Registry:            nil,
+			DisableCompression:  true,
+			MaxRequestsInFlight: 0,
+			Timeout:             0,
+			EnableOpenMetrics:   true,
+			ProcessStartTime:    processStartTime,
+		})))
+		ex := instrument.NewExporter(reg)
+		handlers = append([]gin.HandlerFunc{ex.Instrument}, handlers...)
+		log.Info().Msg("prometheus metrics exporter enabled")
+	}
+	r.GET("/sessionserver/session/minecraft/hasJoined", handlers...)
+
 	err = r.Run(cfg.Listen)
 	if err != nil {
 		panic(fmt.Errorf("error running http server: %w", err))
 	}
+}
+
+type promZeroLogger struct {
+}
+
+func (p promZeroLogger) Println(v ...interface{}) {
+	log.Error().Str("msg", fmt.Sprintln(v...)).Msg("prometheus metrics exporter error")
 }
 
 func createServers(cfg *config.Config) ([]yggdrasil.Server, error) {

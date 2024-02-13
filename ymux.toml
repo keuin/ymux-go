@@ -1,6 +1,9 @@
 debug = false
 listen = "127.0.0.1:32217"
 
+[metrics]
+enabled = true
+
 [[servers]]
 name = "official"
 prefix = "https://sessionserver.mojang.com"

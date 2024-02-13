@@ -14,8 +14,11 @@ type Config struct {
 		Prefix string `toml:"prefix"`
 		Proxy  string `toml:"proxy"`
 	} `toml:"servers"`
-	Debug  bool   `toml:"debug"`
-	Listen string `toml:"listen"`
+	Debug   bool   `toml:"debug"`
+	Listen  string `toml:"listen"`
+	Metrics struct {
+		Enabled bool `toml:"enabled"`
+	} `toml:"metrics"`
 }
 
 func (c Config) Validate() error {
