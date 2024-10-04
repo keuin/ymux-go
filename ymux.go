@@ -55,7 +55,8 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	log.Debug().Msg("debug mode is enabled")
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
 	r.GET("/", func(c *gin.Context) {
 		// servers with authlib-injector will call this API on boot
 		// we need this to make them happy
