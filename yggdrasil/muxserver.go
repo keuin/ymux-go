@@ -7,7 +7,10 @@ import (
 	"github.com/samber/lo"
 	"github.com/samber/mo"
 	"github.com/sourcegraph/conc"
+	"go.uber.org/multierr"
+	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -85,6 +88,41 @@ func (m muxServer) HasJoined(username string, serverID string) (*HasJoinedRespon
 	} else {
 		return *last, nil
 	}
+}
+
+func (m muxServer) GetMinecraftProfiles(usernames []string) (GetMinecraftProfilesResponse, error) {
+	wg := &sync.WaitGroup{}
+	errs := make(chan error, len(m.subServers))
+	results := make(chan GetMinecraftProfilesResponse, len(m.subServers))
+	for _, ss := range m.subServers {
+		ss := ss
+		wg.Add(1)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					errs <- fmt.Errorf("panic while querying subServer %v: %v, trace: %v",
+						ss.Name(), r, string(debug.Stack()))
+				}
+				wg.Done()
+			}()
+			ret, err := ss.GetMinecraftProfiles(usernames)
+			if err != nil {
+				errs <- fmt.Errorf("error querying subServer %v: %v", ss.Name(), err)
+				return
+			}
+			results <- ret
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	close(results)
+	if err := multierr.Combine(lo.ChannelToSlice(errs)...); err != nil {
+		return nil, err
+	}
+	return lo.Reduce(lo.ChannelToSlice(results),
+		func(agg GetMinecraftProfilesResponse, item GetMinecraftProfilesResponse, _ int) GetMinecraftProfilesResponse {
+			return append(agg, item...)
+		}, nil), nil
 }
 
 func NewMuxServer(servers ...Server) Server {

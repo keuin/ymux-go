@@ -144,6 +144,24 @@ func main() {
 		log.Info().Msg("prometheus metrics exporter enabled")
 	}
 	r.GET("/sessionserver/session/minecraft/hasJoined", handlers...)
+	r.POST("/api/profiles/minecraft", func(context *gin.Context) {
+		var usernames []string
+		err := context.BindJSON(&usernames)
+		if err != nil {
+			err = fmt.Errorf("failed to bind argument: %w", err)
+			_ = context.AbortWithError(400, err)
+			log.Error().Err(err).Msg("failed to bind argument")
+			return
+		}
+		ret, err := s.GetMinecraftProfiles(usernames)
+		if err != nil {
+			_ = context.AbortWithError(500, err)
+			log.Error().Err(err).Msg("upstream server GetMinecraftProfiles request failed")
+			return
+		}
+		context.JSON(200, ret)
+		return
+	})
 
 	err = r.Run(cfg.Listen)
 	if err != nil {

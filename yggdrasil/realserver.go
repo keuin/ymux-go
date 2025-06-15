@@ -2,6 +2,7 @@ package yggdrasil
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/imroc/req"
 	"github.com/rs/zerolog/log"
@@ -54,6 +55,39 @@ func (r realServer) HasJoined(username string, serverID string) (*HasJoinedRespo
 		Str("rawBody", string(respBytes)).
 		Msg("hasJoined response")
 	return &resp2, nil
+}
+
+func (r realServer) GetMinecraftProfiles(usernames []string) (GetMinecraftProfilesResponse, error) {
+	if len(usernames) == 0 {
+		return nil, nil
+	}
+	if len(usernames) > 32 {
+		return nil, errors.New("too many usernames")
+	}
+	resp, err := r.req.Post(r.apiPrefix + "/api/profiles/minecraft")
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	respBytes := resp.Bytes()
+	var resp2 GetMinecraftProfilesResponse
+	// decode JSON only if HTTP status code is OK
+	if code := resp.Response().StatusCode; code != 200 {
+		log.Error().
+			Str("body", string(respBytes)).
+			Int("status_code", code).
+			Err(err).
+			Msg("upstream server returned non-200 HTTP status code")
+		return nil, fmt.Errorf("upstream returned non-200 code: %v", code)
+	}
+	err = json.Unmarshal(respBytes, &resp2)
+	if err != nil {
+		log.Error().
+			Str("body", string(respBytes)).
+			Err(err).
+			Msg("unmarshal response body JSON failed")
+		return nil, err
+	}
+	return resp2, nil
 }
 
 func NewServer(apiPrefix string, opt ...NewServerOptions) (Server, error) {
