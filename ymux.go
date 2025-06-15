@@ -88,6 +88,16 @@ func main() {
 			})
 			return
 		}
+		if r == nil {
+			log.Error().Msg("ymux hasJoined API returns nil response")
+			_ = c.AbortWithError(500, fmt.Errorf("ymux hasJoined API returns nil response"))
+			instrument.SetInstrument(c, instrument.RequestInfo{
+				Success:  false,
+				Username: args.Username,
+				ServerID: args.ServerID,
+			})
+			return
+		}
 		log.Info().
 			Str("username", args.Username).
 			Str("serverId", args.ServerID).
